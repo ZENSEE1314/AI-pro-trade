@@ -28,6 +28,8 @@ MIN_TRADES = 20
 MAX_DD_FLOOR = -65.0
 QTY_DECIMALS = {"BTCUSDT": 4, "ETHUSDT": 3, "SOLUSDT": 1}
 LOOP_SECONDS = 60
+PAPER_WALLET_USDT = 1000.0
+MIN_ORDER_USDT = 5.0
 
 state = {
     "best": {},          # symbol -> strategy name
@@ -94,6 +96,8 @@ def _reconcile_user(settings):
         client = BitunixClient(db.decrypt(settings["api_key_enc"]),
                                db.decrypt(settings["api_secret_enc"]))
 
+    size_usdt = _position_size_usdt(settings, client, user_id)
+
     for symbol, target in state["signals"].items():
         price = state["prices"][symbol]
         pos = db.get_position(user_id, symbol)
@@ -106,14 +110,51 @@ def _reconcile_user(settings):
             _execute(client, user_id, symbol, side, pos["qty"], price, mode, reduce_only=True)
 
         qty = 0.0
-        if target != 0:
-            qty = round(settings["size_usdt"] / price, QTY_DECIMALS[symbol])
+        if target != 0 and size_usdt >= MIN_ORDER_USDT:
+            qty = round(size_usdt / price, QTY_DECIMALS[symbol])
             if qty > 0:
                 side = "BUY" if target > 0 else "SELL"
                 _execute(client, user_id, symbol, side, qty, price, mode, reduce_only=False)
             else:
                 target = 0
+        elif target != 0:
+            db.log_order(user_id, symbol, "-", 0, price, mode, "SKIPPED",
+                         f"size {size_usdt:.2f} USDT below minimum {MIN_ORDER_USDT}")
+            target = 0
         db.set_position(user_id, symbol, target, qty, price if target != 0 else 0)
+
+
+def _position_size_usdt(settings, client, user_id) -> float:
+    """Fixed USDT size, or size_pct% of the wallet (live: real Bitunix balance)."""
+    if settings["size_mode"] != "percent":
+        return float(settings["size_usdt"])
+    pct = float(settings["size_pct"]) / 100.0
+    if client is None:
+        return PAPER_WALLET_USDT * pct
+    balance = _wallet_balance(client)
+    if balance is None:
+        db.log_order(user_id, "-", "-", 0, 0, "live", "ERROR",
+                     "could not read wallet balance; skipping this cycle")
+        return 0.0
+    return balance * pct
+
+
+def _wallet_balance(client) -> float | None:
+    """Extract available USDT balance from the Bitunix account response."""
+    try:
+        resp = client.get_account()
+    except Exception:  # noqa: BLE001
+        return None
+    node = resp.get("data", resp)
+    if isinstance(node, list):
+        node = node[0] if node else {}
+    for key in ("available", "availableBalance", "availableAmount", "crossAvailable"):
+        if isinstance(node, dict) and node.get(key) is not None:
+            try:
+                return float(node[key])
+            except (TypeError, ValueError):
+                continue
+    return None
 
 
 def _execute(client, user_id, symbol, side, qty, price, mode, reduce_only):

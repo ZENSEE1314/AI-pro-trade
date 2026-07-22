@@ -77,6 +77,8 @@ class SettingsIn(BaseModel):
     api_key: str | None = None
     api_secret: str | None = None
     size_usdt: float | None = None
+    size_mode: str | None = None      # 'percent' or 'fixed'
+    size_pct: float | None = None
     live: bool | None = None
     active: bool | None = None
 
@@ -88,6 +90,8 @@ def get_settings(user_id: int = Depends(auth.current_user)):
         "has_keys": bool(s["api_key_enc"] and s["api_secret_enc"]),
         "api_key_masked": ("****" + db.decrypt(s["api_key_enc"])[-4:]) if s["api_key_enc"] else "",
         "size_usdt": s["size_usdt"],
+        "size_mode": s["size_mode"],
+        "size_pct": s["size_pct"],
         "live": bool(s["live"]),
         "active": bool(s["active"]),
     }
@@ -102,6 +106,10 @@ def post_settings(body: SettingsIn, user_id: int = Depends(auth.current_user)):
         fields["api_secret_enc"] = db.encrypt(body.api_secret.strip())
     if body.size_usdt is not None:
         fields["size_usdt"] = max(10.0, float(body.size_usdt))
+    if body.size_mode in ("percent", "fixed"):
+        fields["size_mode"] = body.size_mode
+    if body.size_pct is not None:
+        fields["size_pct"] = min(50.0, max(1.0, float(body.size_pct)))
     if body.live is not None:
         fields["live"] = int(body.live)
     if body.active is not None:

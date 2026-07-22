@@ -43,6 +43,8 @@ $("btnSave").onclick = async () => {
         api_key: $("apiKey").value || null,
         api_secret: $("apiSecret").value || null,
         size_usdt: parseFloat($("sizeUsdt").value) || null,
+        size_mode: $("sizeMode").value,
+        size_pct: parseFloat($("sizePct").value) || null,
         active: $("active").checked,
         live: $("live").checked,
       }),
@@ -56,9 +58,19 @@ $("btnSave").onclick = async () => {
 function fillSettings(s) {
   $("keyMask").textContent = s.has_keys ? `(saved: ${s.api_key_masked})` : "(none saved)";
   $("sizeUsdt").value = s.size_usdt;
+  $("sizeMode").value = s.size_mode || "percent";
+  $("sizePct").value = s.size_pct ?? 10;
   $("active").checked = s.active;
   $("live").checked = s.live;
+  toggleSizeBoxes();
 }
+
+function toggleSizeBoxes() {
+  const pct = $("sizeMode").value === "percent";
+  $("pctBox").style.display = pct ? "" : "none";
+  $("fixedBox").style.display = pct ? "none" : "";
+}
+$("sizeMode").onchange = toggleSizeBoxes;
 
 async function refreshStatus() {
   try {

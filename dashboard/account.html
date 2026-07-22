@@ -78,8 +78,26 @@
         <div><label for="apiKey">API Key <span id="keyMask"></span></label><input id="apiKey" type="text" placeholder="paste new key to update" autocomplete="off"></div>
         <div><label for="apiSecret">API Secret</label><input id="apiSecret" type="password" placeholder="paste new secret to update" autocomplete="off"></div>
       </div>
-      <label for="sizeUsdt">Position size per token (USDT)</label>
-      <input id="sizeUsdt" type="number" min="10" step="10" style="max-width:200px">
+      <label for="sizeMode">Position sizing</label>
+      <div class="row" style="align-items:flex-end">
+        <div style="max-width:260px">
+          <select id="sizeMode" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:14px">
+            <option value="percent">% of wallet balance per token</option>
+            <option value="fixed">Fixed USDT per token</option>
+          </select>
+        </div>
+        <div id="pctBox" style="max-width:160px">
+          <label for="sizePct">Percent (1–50)</label>
+          <input id="sizePct" type="number" min="1" max="50" step="1">
+        </div>
+        <div id="fixedBox" style="max-width:160px">
+          <label for="sizeUsdt">USDT</label>
+          <input id="sizeUsdt" type="number" min="10" step="10">
+        </div>
+      </div>
+      <div class="note" style="color:var(--muted);font-size:11.5px;margin-top:6px">
+        Percent mode reads your live Bitunix available balance each hourly evaluation
+        (paper mode uses a $1,000 virtual wallet). 3 tokens at 10% ≈ 30% of wallet deployed when all are long.</div>
       <div class="toggle"><input id="active" type="checkbox"><label for="active" style="margin:0">Bot active (evaluates signals hourly)</label></div>
       <div class="toggle"><input id="live" type="checkbox"><label for="live" style="margin:0;color:var(--red);font-weight:700">LIVE trading (real orders — otherwise paper)</label></div>
       <button id="btnSave">Save Settings</button>

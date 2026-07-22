@@ -74,6 +74,11 @@ def init():
             info TEXT DEFAULT ''
         );
         """)
+        # migration: wallet-percent sizing (default 10% of wallet per token)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(settings)")}
+        if "size_mode" not in cols:
+            conn.execute("ALTER TABLE settings ADD COLUMN size_mode TEXT DEFAULT 'percent'")
+            conn.execute("ALTER TABLE settings ADD COLUMN size_pct REAL DEFAULT 10")
 
 
 def create_user(email: str, pw_hash: str, salt: str) -> int:
