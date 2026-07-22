@@ -19,6 +19,20 @@ trading bot, and a results dashboard.
 | MCP | `mcp_server/tradingview_mcp.py` | MCP tools: klines, indicator snapshot, all-strategy signals, TradingView recommendation |
 | Dashboard | `app/server.py` + `dashboard/` | FastAPI site: leaderboard, equity curves, live liquidations, TV webhook receiver |
 
+## Auto-trading (login + Bitunix keys)
+
+Visit `/account` on the dashboard: register, paste your Bitunix API keys
+(encrypted at rest with `SECRET_KEY`), set position size, tick **Bot active**.
+
+- Each token trades its **best backtested strategy** (highest Sharpe, ≥20 trades,
+  max drawdown better than −65%; benchmarks excluded) — re-selected from
+  `results/results.json` on startup. Currently: *Pullback to EMA50 in Uptrend*
+  for BTC, ETH, and SOL (~2-day average hold — swing, not day trading).
+- **Paper mode by default.** Ticking LIVE places real market orders on Bitunix
+  every hourly candle close. Use trade-only API keys, never withdrawal-enabled.
+- Signals evaluate at each 1h candle close; orders and positions are logged
+  per user (SQLite on a Railway volume at `/data`).
+
 ## Quick start
 
 ```bash

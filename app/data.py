@@ -47,12 +47,19 @@ def load_klines(symbol: str, interval: str = "1h",
                 start: str = "2021-01-01", refresh: bool = False) -> pd.DataFrame:
     CACHE_DIR.mkdir(exist_ok=True)
     cache_file = CACHE_DIR / f"{symbol}_{interval}.csv"
-    if cache_file.exists() and not refresh:
-        df = pd.read_csv(cache_file, parse_dates=["time"], index_col="time")
-        return df
-
-    start_ms = int(pd.Timestamp(start).timestamp() * 1000)
     end_ms = int(time.time() * 1000)
-    df = fetch_klines(symbol, interval, start_ms, end_ms)
+
+    if cache_file.exists():
+        df = pd.read_csv(cache_file, parse_dates=["time"], index_col="time")
+        if not refresh:
+            return df
+        # incremental update: refetch from the last cached candle onward
+        last_ms = int(df.index[-1].timestamp() * 1000)
+        fresh = fetch_klines(symbol, interval, last_ms, end_ms)
+        df = pd.concat([df[df.index < fresh.index[0]], fresh]) if len(fresh) else df
+    else:
+        start_ms = int(pd.Timestamp(start).timestamp() * 1000)
+        df = fetch_klines(symbol, interval, start_ms, end_ms)
+
     df.to_csv(cache_file)
     return df

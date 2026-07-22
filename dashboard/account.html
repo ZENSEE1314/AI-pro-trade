@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Pro Trade — Account &amp; Bot</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #131822; --panel2: #1a2130; --border: #232c3d;
+    --text: #e6edf7; --muted: #8b98ad; --green: #2dd4a7; --red: #f4587a;
+    --accent: #5b8cff; --gold: #f0b90b;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  header { padding: 20px 28px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 16px; }
+  h1 { font-size: 20px; } h1 span { color: var(--gold); }
+  header a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  main { padding: 24px 28px; max-width: 980px; margin: 0 auto; display: grid; gap: 18px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .panel h2 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=email], input[type=password], input[type=text], input[type=number] {
+    width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--text); font-size: 14px;
+  }
+  input:focus { outline: 2px solid var(--accent); }
+  button { margin-top: 14px; padding: 10px 22px; border-radius: 8px; border: none; background: var(--accent);
+    color: #fff; font-weight: 700; cursor: pointer; font-size: 14px; }
+  button.danger { background: var(--red); }
+  button.ghost { background: var(--panel2); color: var(--muted); border: 1px solid var(--border); }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 200px; }
+  .msg { margin-top: 10px; font-size: 13px; min-height: 18px; }
+  .msg.ok { color: var(--green); } .msg.err { color: var(--red); }
+  .toggle { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .toggle input { width: 18px; height: 18px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 8px; border-bottom: 1px solid rgba(35,44,61,.5); }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+  .stat { background: var(--panel2); border-radius: 10px; padding: 10px 16px; min-width: 140px; }
+  .stat .v { font-size: 16px; font-weight: 700; } .stat .l { font-size: 11px; color: var(--muted); }
+  .warn { background: rgba(240,185,11,.08); border: 1px solid rgba(240,185,11,.35); border-radius: 10px;
+    padding: 12px 14px; font-size: 12.5px; color: #e8cf80; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI <span>Pro</span> Trade — Account</h1>
+  <a href="/">← Dashboard</a>
+</header>
+<main>
+  <section id="authPanel" class="panel">
+    <h2>Login / Register</h2>
+    <div class="row">
+      <div><label for="email">Email</label><input id="email" type="email" autocomplete="email"></div>
+      <div><label for="password">Password (min 8 chars)</label><input id="password" type="password" autocomplete="current-password"></div>
+    </div>
+    <button id="btnLogin">Login</button>
+    <button id="btnRegister" class="ghost">Register</button>
+    <div id="authMsg" class="msg"></div>
+  </section>
+
+  <section id="botPanel" class="hidden">
+    <div class="panel" style="margin-bottom:18px">
+      <h2>Bot Status — each token runs its best backtested strategy</h2>
+      <div class="row" id="botStatus"></div>
+      <div id="posBox" style="margin-top:14px"></div>
+    </div>
+
+    <div class="panel" style="margin-bottom:18px">
+      <h2>Bitunix API Keys &amp; Trading Settings</h2>
+      <div class="warn">⚠️ Live mode places <b>real market orders</b> with real money on Bitunix futures.
+        Create API keys with <b>trade-only</b> permission (never withdrawal), start with a small size,
+        and expect losses — backtest results do not guarantee future performance.</div>
+      <div class="row">
+        <div><label for="apiKey">API Key <span id="keyMask"></span></label><input id="apiKey" type="text" placeholder="paste new key to update" autocomplete="off"></div>
+        <div><label for="apiSecret">API Secret</label><input id="apiSecret" type="password" placeholder="paste new secret to update" autocomplete="off"></div>
+      </div>
+      <label for="sizeUsdt">Position size per token (USDT)</label>
+      <input id="sizeUsdt" type="number" min="10" step="10" style="max-width:200px">
+      <div class="toggle"><input id="active" type="checkbox"><label for="active" style="margin:0">Bot active (evaluates signals hourly)</label></div>
+      <div class="toggle"><input id="live" type="checkbox"><label for="live" style="margin:0;color:var(--red);font-weight:700">LIVE trading (real orders — otherwise paper)</label></div>
+      <button id="btnSave">Save Settings</button>
+      <button id="btnLogout" class="ghost">Logout</button>
+      <div id="saveMsg" class="msg"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Order Log</h2>
+      <div style="overflow-x:auto"><table id="ordersTbl">
+        <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Mode</th><th>Status</th><th>Info</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+  </section>
+</main>
+<script src="/static/account.js"></script>
+</body>
+</html>
