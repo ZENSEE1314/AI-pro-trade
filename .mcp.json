@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "tradingview-trade": {
+      "command": ".venv/Scripts/python.exe",
+      "args": ["-m", "mcp_server.tradingview_mcp"],
+      "cwd": "."
+    }
+  }
+}
