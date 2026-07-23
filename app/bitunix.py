@@ -83,6 +83,38 @@ class BitunixClient:
             return order
         return self._signed("POST", "/api/v1/futures/trade/place_order", body=body)
 
+    def get_open_positions_map(self) -> dict:
+        """symbol -> {side: 1/-1, qty, position_id, entry} for all open positions."""
+        if self.paper_mode:
+            return {}
+        resp = self.get_positions()
+        data = resp.get("data", resp) if isinstance(resp, dict) else resp
+        if isinstance(data, dict):
+            data = [data]
+        out = {}
+        for p in data or []:
+            try:
+                qty = float(p.get("qty", 0))
+            except (TypeError, ValueError):
+                qty = 0.0
+            if qty <= 0:
+                continue
+            side = 1 if str(p.get("side", "")).upper() in ("LONG", "BUY") else -1
+            try:
+                entry = float(p.get("avgOpenPrice") or 0)
+            except (TypeError, ValueError):
+                entry = 0.0
+            out[p.get("symbol")] = {"side": side, "qty": qty,
+                                    "position_id": p.get("positionId"), "entry": entry}
+        return out
+
+    def flash_close_position(self, position_id: str) -> dict:
+        """Market-close an entire position by its Bitunix positionId."""
+        if self.paper_mode:
+            return {"code": 0, "paper": True, "closed": position_id}
+        return self._signed("POST", "/api/v1/futures/trade/flash_close_position",
+                            body={"positionId": str(position_id)})
+
     def cancel_all(self, symbol: str) -> dict:
         if self.paper_mode:
             return {"paper": True, "cancelled": symbol}

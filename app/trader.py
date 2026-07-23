@@ -92,9 +92,12 @@ def _reconcile_user(settings):
     is_live = bool(settings["live"]) and settings["api_key_enc"] and settings["api_secret_enc"]
     mode = "live" if is_live else "paper"
     client = None
+    live_map = {}
     if is_live:
         client = BitunixClient(db.decrypt(settings["api_key_enc"]),
                                db.decrypt(settings["api_secret_enc"]))
+        live_map = client.get_open_positions_map()
+        _sync_db_from_exchange(user_id, live_map)
 
     size_usdt = _position_size_usdt(settings, client, user_id)
 
@@ -106,15 +109,14 @@ def _reconcile_user(settings):
             continue
 
         if current != 0 and pos and pos["qty"] > 0:
-            side = "SELL" if current > 0 else "BUY"
-            _execute(client, user_id, symbol, side, pos["qty"], price, mode, reduce_only=True)
+            _close(client, user_id, symbol, current, pos["qty"], price, mode, live_map)
 
         qty = 0.0
         if target != 0 and size_usdt >= MIN_ORDER_USDT:
             qty = round(size_usdt / price, QTY_DECIMALS[symbol])
             if qty > 0:
                 side = "BUY" if target > 0 else "SELL"
-                _execute(client, user_id, symbol, side, qty, price, mode, reduce_only=False)
+                _open(client, user_id, symbol, side, qty, price, mode)
             else:
                 target = 0
         elif target != 0:
@@ -122,6 +124,20 @@ def _reconcile_user(settings):
                          f"size {size_usdt:.2f} USDT below minimum {MIN_ORDER_USDT}")
             target = 0
         db.set_position(user_id, symbol, target, qty, price if target != 0 else 0)
+
+
+def _sync_db_from_exchange(user_id: int, live_map: dict):
+    """Exchange is source of truth for live positions: adopt orphans opened outside
+    the DB's knowledge, and drop positions closed externally, so the bot never
+    double-opens or abandons a live position."""
+    for symbol in SYMBOLS:
+        lp = live_map.get(symbol)
+        db_pos = db.get_position(user_id, symbol)
+        if lp:
+            entry = lp["entry"] or (db_pos["entry_price"] if db_pos else 0)
+            db.set_position(user_id, symbol, lp["side"], lp["qty"], entry)
+        elif db_pos and db_pos["side"] != 0:
+            db.set_position(user_id, symbol, 0, 0, 0)
 
 
 def _position_size_usdt(settings, client, user_id) -> float:
@@ -157,17 +173,48 @@ def _wallet_balance(client) -> float | None:
     return None
 
 
-def _execute(client, user_id, symbol, side, qty, price, mode, reduce_only):
-    if mode == "live":
-        try:
-            resp = client.place_order(symbol, side, qty, reduce_only=reduce_only)
-            db.log_order(user_id, symbol, side, qty, price, mode, "SENT", json.dumps(resp)[:300])
-        except Exception as exc:  # noqa: BLE001
-            db.log_order(user_id, symbol, side, qty, price, mode, "FAILED", str(exc))
-            raise
+def _ok(resp) -> bool:
+    """Bitunix returns code == 0 on success (HTTP is 200 even on rejection)."""
+    return isinstance(resp, dict) and str(resp.get("code", "0")) == "0"
+
+
+def _open(client, user_id, symbol, side, qty, price, mode):
+    if mode != "live":
+        db.log_order(user_id, symbol, side, qty, price, mode, "FILLED", "paper open")
+        return
+    try:
+        resp = client.place_order(symbol, side, qty)      # tradeSide=OPEN, MARKET
+    except Exception as exc:  # noqa: BLE001
+        db.log_order(user_id, symbol, side, qty, price, mode, "FAILED", str(exc))
+        raise
+    if _ok(resp):
+        db.log_order(user_id, symbol, side, qty, price, mode, "SENT", json.dumps(resp)[:300])
     else:
-        db.log_order(user_id, symbol, side, qty, price, mode, "FILLED",
-                     "paper " + ("close" if reduce_only else "open"))
+        db.log_order(user_id, symbol, side, qty, price, mode, "FAILED", json.dumps(resp)[:300])
+        raise RuntimeError(f"open rejected: {resp.get('msg')}")
+
+
+def _close(client, user_id, symbol, current, qty, price, mode, live_map):
+    """Close via Bitunix flash_close_position (needs the live positionId)."""
+    if mode != "live":
+        db.log_order(user_id, symbol, "SELL" if current > 0 else "BUY", qty, price,
+                     mode, "FILLED", "paper close")
+        return
+    lp = live_map.get(symbol)
+    if not lp or not lp.get("position_id"):
+        db.log_order(user_id, symbol, "CLOSE", qty, price, mode, "SKIPPED",
+                     "no live position found to close")
+        return
+    try:
+        resp = client.flash_close_position(lp["position_id"])
+    except Exception as exc:  # noqa: BLE001
+        db.log_order(user_id, symbol, "CLOSE", qty, price, mode, "FAILED", str(exc))
+        raise
+    if _ok(resp):
+        db.log_order(user_id, symbol, "CLOSE", qty, price, mode, "SENT", json.dumps(resp)[:300])
+    else:
+        db.log_order(user_id, symbol, "CLOSE", qty, price, mode, "FAILED", json.dumps(resp)[:300])
+        raise RuntimeError(f"close rejected: {resp.get('msg')}")
 
 
 def status() -> dict:
