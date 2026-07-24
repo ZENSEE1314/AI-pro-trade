@@ -108,6 +108,18 @@ class BitunixClient:
                                     "position_id": p.get("positionId"), "entry": entry}
         return out
 
+    def get_leverage(self, symbol: str, margin_coin: str = "USDT") -> int | None:
+        """Current leverage set for a symbol (not changed by the bot)."""
+        if self.paper_mode:
+            return None
+        resp = self._signed("GET", "/api/v1/futures/account/get_leverage_margin_mode",
+                            {"symbol": symbol, "marginCoin": margin_coin})
+        data = resp.get("data", {}) if isinstance(resp, dict) else {}
+        try:
+            return int(data.get("leverage"))
+        except (TypeError, ValueError):
+            return None
+
     def flash_close_position(self, position_id: str) -> dict:
         """Market-close an entire position by its Bitunix positionId."""
         if self.paper_mode:

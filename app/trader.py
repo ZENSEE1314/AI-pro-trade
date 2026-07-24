@@ -29,7 +29,8 @@ MAX_DD_FLOOR = -65.0
 QTY_DECIMALS = {"BTCUSDT": 4, "ETHUSDT": 3, "SOLUSDT": 1}
 LOOP_SECONDS = 60
 PAPER_WALLET_USDT = 1000.0
-MIN_ORDER_USDT = 5.0
+PAPER_LEVERAGE = 10          # assumed leverage for paper-mode notional
+MIN_ORDER_USDT = 5.0         # minimum notional Bitunix will accept
 
 state = {
     "best": {},          # symbol -> strategy name
@@ -99,7 +100,7 @@ def _reconcile_user(settings):
         live_map = client.get_open_positions_map()
         _sync_db_from_exchange(user_id, live_map)
 
-    size_usdt = _position_size_usdt(settings, client, user_id)
+    margin_usdt = _position_margin_usdt(settings, client, user_id)
 
     for symbol, target in state["signals"].items():
         price = state["prices"][symbol]
@@ -112,16 +113,27 @@ def _reconcile_user(settings):
             _close(client, user_id, symbol, current, pos["qty"], price, mode, live_map)
 
         qty = 0.0
-        if target != 0 and size_usdt >= MIN_ORDER_USDT:
-            qty = round(size_usdt / price, QTY_DECIMALS[symbol])
-            if qty > 0:
-                side = "BUY" if target > 0 else "SELL"
-                _open(client, user_id, symbol, side, qty, price, mode)
-            else:
+        if target != 0 and margin_usdt > 0:
+            # margin is what the user commits; notional = margin x leverage
+            leverage = PAPER_LEVERAGE if client is None else client.get_leverage(symbol)
+            if not leverage:
+                db.log_order(user_id, symbol, "-", 0, price, mode, "SKIPPED",
+                             "could not read leverage for symbol")
                 target = 0
+            else:
+                notional = margin_usdt * leverage
+                qty = round(notional / price, QTY_DECIMALS[symbol])
+                if notional >= MIN_ORDER_USDT and qty > 0:
+                    side = "BUY" if target > 0 else "SELL"
+                    _open(client, user_id, symbol, side, qty, price, mode,
+                          note=f"margin {margin_usdt:.2f} x {leverage}x = {notional:.2f} notional")
+                else:
+                    db.log_order(user_id, symbol, "-", 0, price, mode, "SKIPPED",
+                                 f"notional {notional:.2f} below minimum {MIN_ORDER_USDT}")
+                    target = 0
         elif target != 0:
             db.log_order(user_id, symbol, "-", 0, price, mode, "SKIPPED",
-                         f"size {size_usdt:.2f} USDT below minimum {MIN_ORDER_USDT}")
+                         "margin size is zero (check wallet balance)")
             target = 0
         db.set_position(user_id, symbol, target, qty, price if target != 0 else 0)
 
@@ -140,23 +152,24 @@ def _sync_db_from_exchange(user_id: int, live_map: dict):
             db.set_position(user_id, symbol, 0, 0, 0)
 
 
-def _position_size_usdt(settings, client, user_id) -> float:
-    """Fixed USDT size, or size_pct% of the wallet (live: real Bitunix balance)."""
+def _position_margin_usdt(settings, client, user_id) -> float:
+    """USDT margin committed per token: a fixed amount, or size_pct% of total wallet
+    equity (live: real Bitunix account). Notional = this x leverage."""
     if settings["size_mode"] != "percent":
         return float(settings["size_usdt"])
     pct = float(settings["size_pct"]) / 100.0
     if client is None:
         return PAPER_WALLET_USDT * pct
-    balance = _wallet_balance(client)
-    if balance is None:
+    equity = _wallet_equity(client)
+    if equity is None:
         db.log_order(user_id, "-", "-", 0, 0, "live", "ERROR",
                      "could not read wallet balance; skipping this cycle")
         return 0.0
-    return balance * pct
+    return equity * pct
 
 
-def _wallet_balance(client) -> float | None:
-    """Extract available USDT balance from the Bitunix account response."""
+def _wallet_equity(client) -> float | None:
+    """Total account equity in USDT (available + locked margin + unrealized PnL)."""
     try:
         resp = client.get_account()
     except Exception:  # noqa: BLE001
@@ -164,13 +177,17 @@ def _wallet_balance(client) -> float | None:
     node = resp.get("data", resp)
     if isinstance(node, list):
         node = node[0] if node else {}
-    for key in ("available", "availableBalance", "availableAmount", "crossAvailable"):
-        if isinstance(node, dict) and node.get(key) is not None:
-            try:
-                return float(node[key])
-            except (TypeError, ValueError):
-                continue
-    return None
+    if not isinstance(node, dict) or node.get("available") is None:
+        return None
+
+    def num(key: str) -> float:
+        try:
+            return float(node.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    return (num("available") + num("frozen") + num("margin")
+            + num("crossUnrealizedPNL") + num("isolationUnrealizedPNL"))
 
 
 def _ok(resp) -> bool:
@@ -178,9 +195,9 @@ def _ok(resp) -> bool:
     return isinstance(resp, dict) and str(resp.get("code", "0")) == "0"
 
 
-def _open(client, user_id, symbol, side, qty, price, mode):
+def _open(client, user_id, symbol, side, qty, price, mode, note=""):
     if mode != "live":
-        db.log_order(user_id, symbol, side, qty, price, mode, "FILLED", "paper open")
+        db.log_order(user_id, symbol, side, qty, price, mode, "FILLED", "paper open " + note)
         return
     try:
         resp = client.place_order(symbol, side, qty)      # tradeSide=OPEN, MARKET
@@ -188,7 +205,7 @@ def _open(client, user_id, symbol, side, qty, price, mode):
         db.log_order(user_id, symbol, side, qty, price, mode, "FAILED", str(exc))
         raise
     if _ok(resp):
-        db.log_order(user_id, symbol, side, qty, price, mode, "SENT", json.dumps(resp)[:300])
+        db.log_order(user_id, symbol, side, qty, price, mode, "SENT", (note + " " + json.dumps(resp))[:300])
     else:
         db.log_order(user_id, symbol, side, qty, price, mode, "FAILED", json.dumps(resp)[:300])
         raise RuntimeError(f"open rejected: {resp.get('msg')}")

@@ -78,7 +78,7 @@
         <div><label for="apiKey">API Key <span id="keyMask"></span></label><input id="apiKey" type="text" placeholder="paste new key to update" autocomplete="off"></div>
         <div><label for="apiSecret">API Secret</label><input id="apiSecret" type="password" placeholder="paste new secret to update" autocomplete="off"></div>
       </div>
-      <label for="sizeMode">Position sizing</label>
+      <label for="sizeMode">Position sizing (margin committed per token)</label>
       <div class="row" style="align-items:flex-end">
         <div style="max-width:260px">
           <select id="sizeMode" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:14px">
@@ -96,8 +96,10 @@
         </div>
       </div>
       <div class="note" style="color:var(--muted);font-size:11.5px;margin-top:6px">
-        Percent mode reads your live Bitunix available balance each hourly evaluation
-        (paper mode uses a $1,000 virtual wallet). 3 tokens at 10% ≈ 30% of wallet deployed when all are long.</div>
+        This is the <b>margin</b> committed per token. Actual position size (notional)
+        = margin × your current Bitunix leverage for that symbol (the bot reads it, does not change it).
+        Example: $1,000 wallet at 10% = $100 margin; at 20× leverage that's a $2,000 position.
+        Percent mode uses total wallet equity each hourly evaluation (paper mode: $1,000 virtual wallet, 10× assumed).</div>
       <div class="toggle"><input id="active" type="checkbox"><label for="active" style="margin:0">Bot active (evaluates signals hourly)</label></div>
       <div class="toggle"><input id="live" type="checkbox"><label for="live" style="margin:0;color:var(--red);font-weight:700">LIVE trading (real orders — otherwise paper)</label></div>
       <button id="btnSave">Save Settings</button>
